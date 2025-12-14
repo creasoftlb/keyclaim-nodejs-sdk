@@ -1,6 +1,6 @@
 {
   "name": "@keyclaim/sdk",
-  "version": "1.0.2",
+  "version": "1.0.3",
   "description": "Official KeyClaim SDK for Node.js - MITM protection and challenge validation",
   "main": "dist/index.js",
   "types": "dist/index.d.ts",
