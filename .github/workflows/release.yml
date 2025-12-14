@@ -18,17 +18,11 @@ on:
         default: true
 
 jobs:
-  release:
+  lint:
     runs-on: ubuntu-latest
-    permissions:
-      contents: write
-      pull-requests: write
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
-        with:
-          fetch-depth: 0
-          token: ${{ secrets.GITHUB_TOKEN }}
       
       - name: Setup Node.js
         uses: actions/setup-node@v4
@@ -36,10 +30,27 @@ jobs:
           node-version: '20'
           cache: 'npm'
       
-      - name: Configure Git
-        run: |
-          git config user.name "github-actions[bot]"
-          git config user.email "github-actions[bot]@users.noreply.github.com"
+      - name: Install dependencies
+        run: npm ci
+      
+      - name: Run linter
+        run: npm run lint
+      
+      - name: Type check
+        run: npm run type-check
+
+  security:
+    runs-on: ubuntu-latest
+    needs: lint
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+      
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
       
       - name: Install dependencies
         run: npm ci
@@ -72,15 +83,60 @@ jobs:
           else
             echo "✅ No critical or high vulnerabilities found!"
           fi
+
+  release:
+    runs-on: ubuntu-latest
+    needs: security
+    permissions:
+      contents: write
+      pull-requests: write
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          token: ${{ secrets.GITHUB_TOKEN }}
       
-      - name: Run linter
-        run: npm run lint
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
       
-      - name: Type check
-        run: npm run type-check
+      - name: Configure Git
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
       
-      - name: Run tests with coverage
+      - name: Install dependencies
+        run: npm ci
+      
+      - name: Run tests with 100% coverage requirement
         run: npm run test:ci
+        env:
+          CI: true
+      
+      - name: Verify coverage threshold
+        run: |
+          if [ ! -f "coverage/coverage-summary.json" ]; then
+            echo "❌ Coverage report not found"
+            exit 1
+          fi
+          
+          COVERAGE=$(node -e "const cov = require('./coverage/coverage-summary.json'); console.log(cov.total.statements.pct, cov.total.branches.pct, cov.total.functions.pct, cov.total.lines.pct);")
+          
+          echo "📊 Coverage Results:"
+          echo "$COVERAGE"
+          
+          # Check if all coverage metrics are 100%
+          if ! node -e "const cov = require('./coverage/coverage-summary.json'); const all = [cov.total.statements.pct, cov.total.branches.pct, cov.total.functions.pct, cov.total.lines.pct]; if (all.some(v => v !== 100)) { process.exit(1); }"; then
+            echo "❌ Coverage is not 100%. All metrics must be at 100%."
+            echo "Current coverage:"
+            cat coverage/coverage-summary.json | grep -A 4 '"total"'
+            exit 1
+          fi
+          
+          echo "✅ 100% coverage achieved!"
       
       - name: Bump version
         id: bump
@@ -94,6 +150,15 @@ jobs:
       
       - name: Build package
         run: npm run build
+      
+      - name: Verify build output
+        run: |
+          if [ ! -d "dist" ]; then
+            echo "❌ Build failed - dist directory not found"
+            exit 1
+          fi
+          echo "✅ Build successful"
+          ls -la dist/
       
       - name: Create Pull Request
         uses: peter-evans/create-pull-request@v5
@@ -112,13 +177,14 @@ jobs:
             - Version bumped from ${{ steps.bump.outputs.old_version }} to ${{ steps.bump.outputs.new_version }}
             
             ### Checklist
+            - [x] Linting passed
+            - [x] Security audit passed
             - [x] Tests passing
             - [x] 100% code coverage
-            - [x] Linting passed
             - [x] Type checking passed
             - [x] Build successful
             
-            Once this PR is merged, a GitHub release will be created automatically.
+            Once this PR is merged, a GitHub release will be created automatically, which will trigger npm publishing.
           branch: release/v${{ steps.bump.outputs.new_version }}
           delete-branch: true
       
@@ -149,4 +215,3 @@ jobs:
           prerelease: false
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-
