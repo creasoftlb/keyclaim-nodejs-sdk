@@ -1,0 +1,111 @@
+name: Publish to npm
+
+on:
+  release:
+    types: [created]
+  workflow_dispatch:
+    inputs:
+      version:
+        description: 'Version to publish (patch, minor, major, or specific version)'
+        required: false
+        default: 'patch'
+
+jobs:
+  build-and-test:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+      
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+      
+      - name: Install dependencies
+        run: npm ci
+      
+      - name: Run linter
+        run: npm run lint
+      
+      - name: Type check
+        run: npm run type-check
+      
+      - name: Build package
+        run: npm run build
+      
+      - name: Run tests with 100% coverage requirement
+        run: npm run test:ci
+        env:
+          CI: true
+      
+      - name: Verify coverage threshold
+        run: |
+          if [ ! -f "coverage/coverage-summary.json" ]; then
+            echo "❌ Coverage report not found"
+            exit 1
+          fi
+          
+          COVERAGE=$(node -e "const cov = require('./coverage/coverage-summary.json'); console.log(cov.total.statements.pct, cov.total.branches.pct, cov.total.functions.pct, cov.total.lines.pct);")
+          
+          echo "📊 Coverage Results:"
+          echo "$COVERAGE"
+          
+          # Check if all coverage metrics are 100%
+          if ! node -e "const cov = require('./coverage/coverage-summary.json'); const all = [cov.total.statements.pct, cov.total.branches.pct, cov.total.functions.pct, cov.total.lines.pct]; if (all.some(v => v !== 100)) { process.exit(1); }"; then
+            echo "❌ Coverage is not 100%. All metrics must be at 100%."
+            echo "Current coverage:"
+            cat coverage/coverage-summary.json | grep -A 4 '"total"'
+            exit 1
+          fi
+          
+          echo "✅ 100% coverage achieved!"
+      
+      - name: Verify build output
+        run: |
+          if [ ! -d "dist" ]; then
+            echo "❌ Build failed - dist directory not found"
+            exit 1
+          fi
+          echo "✅ Build successful"
+          ls -la dist/
+      
+      - name: Upload coverage reports
+        uses: codecov/codecov-action@v3
+        with:
+          files: ./coverage/lcov.info
+          fail_ci_if_error: false
+
+  publish-npm:
+    needs: build-and-test
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      id-token: write
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+      
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          registry-url: 'https://registry.npmjs.org'
+          scope: '@keyclaim'
+      
+      - name: Install dependencies
+        run: npm ci
+      
+      - name: Build package
+        run: npm run build
+      
+      - name: Publish to npm
+        run: npm publish --access public
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+      
+      - name: Verify publication
+        run: |
+          echo "✅ Successfully published @keyclaim/sdk to npm!"
+          echo "📦 Package: https://www.npmjs.com/package/@keyclaim/sdk"

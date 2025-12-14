@@ -1,0 +1,123 @@
+name: Create Release
+
+on:
+  workflow_dispatch:
+    inputs:
+      version_type:
+        description: 'Version bump type'
+        required: true
+        type: choice
+        options:
+          - patch
+          - minor
+          - major
+      create_release:
+        description: 'Create GitHub release'
+        required: true
+        type: boolean
+        default: true
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      pull-requests: write
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          token: ${{ secrets.GITHUB_TOKEN }}
+      
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+      
+      - name: Configure Git
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+      
+      - name: Install dependencies
+        run: npm ci
+      
+      - name: Run linter
+        run: npm run lint
+      
+      - name: Type check
+        run: npm run type-check
+      
+      - name: Run tests with coverage
+        run: npm run test:ci
+      
+      - name: Bump version
+        id: bump
+        run: |
+          OLD_VERSION=$(node -p "require('./package.json').version")
+          npm version ${{ inputs.version_type }} --no-git-tag-version
+          NEW_VERSION=$(node -p "require('./package.json').version")
+          echo "old_version=$OLD_VERSION" >> $GITHUB_OUTPUT
+          echo "new_version=$NEW_VERSION" >> $GITHUB_OUTPUT
+          echo "📦 Version bumped: $OLD_VERSION → $NEW_VERSION"
+      
+      - name: Build package
+        run: npm run build
+      
+      - name: Create Pull Request
+        uses: peter-evans/create-pull-request@v5
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+          commit-message: "chore: bump version to ${{ steps.bump.outputs.new_version }}"
+          title: "Release v${{ steps.bump.outputs.new_version }}"
+          body: |
+            ## Release v${{ steps.bump.outputs.new_version }}
+            
+            - **Previous version:** ${{ steps.bump.outputs.old_version }}
+            - **New version:** ${{ steps.bump.outputs.new_version }}
+            - **Version type:** ${{ inputs.version_type }}
+            
+            ### Changes
+            - Version bumped from ${{ steps.bump.outputs.old_version }} to ${{ steps.bump.outputs.new_version }}
+            
+            ### Checklist
+            - [x] Tests passing
+            - [x] 100% code coverage
+            - [x] Linting passed
+            - [x] Type checking passed
+            - [x] Build successful
+            
+            Once this PR is merged, a GitHub release will be created automatically.
+          branch: release/v${{ steps.bump.outputs.new_version }}
+          delete-branch: true
+      
+      - name: Create GitHub Release
+        if: inputs.create_release == true
+        uses: softprops/action-gh-release@v1
+        with:
+          tag_name: v${{ steps.bump.outputs.new_version }}
+          name: Release v${{ steps.bump.outputs.new_version }}
+          body: |
+            ## Release v${{ steps.bump.outputs.new_version }}
+            
+            ### Changes
+            - Version bumped from ${{ steps.bump.outputs.old_version }} to ${{ steps.bump.outputs.new_version }}
+            - **Version type:** ${{ inputs.version_type }}
+            
+            ### Installation
+            ```bash
+            npm install @keyclaim/sdk@${{ steps.bump.outputs.new_version }}
+            ```
+            
+            ### Package
+            📦 https://www.npmjs.com/package/@keyclaim/sdk
+            
+            ### Full Changelog
+            See [GitHub Releases](https://github.com/creasoftlb/keyclaim-nodejs/releases) for full changelog.
+          draft: false
+          prerelease: false
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
