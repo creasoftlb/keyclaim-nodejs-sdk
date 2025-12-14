@@ -44,6 +44,35 @@ jobs:
       - name: Install dependencies
         run: npm ci
       
+      - name: Security audit
+        run: |
+          echo "🔒 Running security audit..."
+          npm audit --audit-level=moderate || true
+          
+          # Check for critical and high vulnerabilities
+          AUDIT_RESULT=$(npm audit --json --audit-level=moderate 2>/dev/null || echo '{}')
+          CRITICAL=$(echo "$AUDIT_RESULT" | node -e "const data = require('fs').readFileSync(0, 'utf-8'); try { const audit = JSON.parse(data); console.log(audit.metadata?.vulnerabilities?.critical || 0); } catch(e) { console.log(0); }")
+          HIGH=$(echo "$AUDIT_RESULT" | node -e "const data = require('fs').readFileSync(0, 'utf-8'); try { const audit = JSON.parse(data); console.log(audit.metadata?.vulnerabilities?.high || 0); } catch(e) { console.log(0); }")
+          MODERATE=$(echo "$AUDIT_RESULT" | node -e "const data = require('fs').readFileSync(0, 'utf-8'); try { const audit = JSON.parse(data); console.log(audit.metadata?.vulnerabilities?.moderate || 0); } catch(e) { console.log(0); }")
+          
+          echo "📊 Vulnerability Summary:"
+          echo "  Critical: $CRITICAL"
+          echo "  High: $HIGH"
+          echo "  Moderate: $MODERATE"
+          
+          # Fail on critical or high vulnerabilities
+          if [ "$CRITICAL" -gt 0 ] || [ "$HIGH" -gt 0 ]; then
+            echo "❌ Security audit failed: Critical or High vulnerabilities found!"
+            echo "Please run 'npm audit fix' or update vulnerable dependencies before publishing."
+            exit 1
+          fi
+          
+          if [ "$MODERATE" -gt 0 ]; then
+            echo "⚠️  Warning: Moderate vulnerabilities found. Consider updating dependencies."
+          else
+            echo "✅ No critical or high vulnerabilities found!"
+          fi
+      
       - name: Run linter
         run: npm run lint
       

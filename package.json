@@ -14,7 +14,10 @@
     "test:ci": "jest --coverage --ci",
     "lint": "eslint src/**/*.ts __tests__/**/*.ts",
     "lint:fix": "eslint src/**/*.ts __tests__/**/*.ts --fix",
-    "type-check": "tsc --noEmit && tsc --noEmit --project tsconfig.test.json"
+    "type-check": "tsc --noEmit && tsc --noEmit --project tsconfig.test.json",
+    "audit": "npm audit",
+    "audit:fix": "npm audit fix",
+    "security": "npm audit --audit-level=moderate"
   },
   "keywords": [
     "keyclaim",
